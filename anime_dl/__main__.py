@@ -69,7 +69,10 @@ class Main():
             # Same approach for the audio as well.
 
             if type(args.resolution) == list:
-                args.resolution = args.resolution[0]
+                if "," in args.resolution[0]:
+                    args.resolution = args.resolution[0].split(',')
+                else:
+                    args.resolution = args.resolution[0]
             if type(args.language) == list:
                 args.language = args.language[0]
             if type(args.range) == list:

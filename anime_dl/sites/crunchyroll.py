@@ -37,7 +37,7 @@ class Crunchyroll(object):
         if login_response:
             if crunchy_video:
                 if skipper == "yes":
-                    self.only_subs(url=url, cookies=cookies, resolution=resolution)
+                    self.only_subs(url=url, cookies=cookies, resolution=resolution, output=output)
                 else:
                     self.single_episode(url=url, cookies=cookies, token=token, resolution=resolution, output=output)
             elif crunchy_show:
@@ -49,14 +49,22 @@ class Crunchyroll(object):
             exit(1)
 
     def single_episode(self, url, cookies, token, resolution, output):
+        if type(resolution) == list:
+            for res in resolution:
+                done = self.download_show(url, cookies, token, resolution, output)
+                if done:
+                    exit(1)
+        elif not resolution == "720":
+            self.download_show(url, cookies, token, resolution, output)
+        else:
+            self.download_show(url, cookies, token, "720", output)
+
+    def download_show(self, url, cookies, token, resolution, output):
         video_id = str(url.split('-')[-1]).replace("/", "")
         logging.debug("video_id : {0}".format(video_id))
-
-        response, resolution_to_find, info_url = self.resolution_finder(resolution=resolution, video_id=video_id, url=url)
-
-        if not response:
-            print("No Resolution Found")
-            exit(1)
+        info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=108&video_quality=80&current_page=%s" % (
+            video_id, url)
+        resolution_to_find = str(resolution)
 
         response_value, xml_page_connect, xml_cookies = anime_dl.common.browser_instance.page_downloader(url=info_url, cookies=cookies)
 
@@ -119,7 +127,7 @@ class Crunchyroll(object):
         else:
             print("Couldn't Connect To XML Page.")
             pass
-
+                
     def whole_show(self, url, cookie, token, language, resolution, skipper, episode_range, output):
         response, page_source, episode_list_cookies = anime_dl.common.browser_instance.page_downloader(url=url, cookies=cookie)
 
@@ -133,7 +141,18 @@ class Crunchyroll(object):
                 for episode_url in ep_sub_list[::-1]:
                     # cookies, Token = self.webpagedownloader(url=url)
                     # print("Sub list : %s" % sub_list)
-                    self.only_subs(url=episode_url, cookies=cookie, resolution=resolution)
+                    
+                    if type(resolution) == list:
+                        for res in resolution:
+                            done = self.only_subs(url=episode_url, cookies=cookie, resolution=res, output=output)
+                            if done:
+                                pass
+                    elif not resolution == "720":
+                        self.only_subs(url=episode_url, cookies=cookie, resolution=resolution, output=output)
+                    else:
+                        self.only_subs(url=episode_url, cookies=cookie, resolution=720, output=output)
+                    
+                    self.only_subs(url=episode_url, cookies=cookie, resolution=resolution, output=output)
 
                     print("-----------------------------------------------------------")
                     print("\n")
@@ -207,8 +226,7 @@ class Crunchyroll(object):
     def episode_information_extractor(self, page_source, resolution_to_find):
         anime_name = re.sub(r'[^A-Za-z0-9\ \-\' \\]+', '', str(re.search(r'<series_title>(.*?)</series_title>', page_source).group(1))).title().strip()
         episode_number = re.search(r'<episode_number>(.*?)</episode_number>', page_source.decode("utf-8")).group(1)
-        video_width, video_height = resolution_to_find.split("x")
-        video_resolution = str(video_width) + "x" + str(video_height)
+        video_resolution = resolution_to_find
 
         return anime_name, episode_number, video_resolution
 
@@ -300,7 +318,8 @@ class Crunchyroll(object):
 
             if m3u8_file_text is None:
                 print('Could not find the requested resolution {0} in the m3u8 file\n'.format(file_name))
-                exit(1)
+                self.material_cleaner()
+                return False
 
             self.ffmpeg_call(m3u8_file_text, file_name)
             return True
@@ -367,16 +386,13 @@ class Crunchyroll(object):
         logging.debug("subs_files : {0}".format(subs_files))
         return subs_files
 
-    def only_subs(self, url, cookies, resolution):
+    def only_subs(self, url, cookies, resolution, output):
         video_id = str(url.split('-')[-1]).replace("/", "")
         logging.debug("video_id : {0}".format(video_id))
-
-        response, resolution_to_find, info_url = self.resolution_finder(resolution=resolution, video_id=video_id, url=url)
-
-        if not response:
-            print("No Resolution Found")
-            exit(1)
-
+        info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=108&video_quality=80&current_page=%s" % (
+            video_id, url)
+        resolution_to_find = str(resolution)
+        
         response_value, xml_page_connect, xml_cookies = anime_dl.common.browser_instance.page_downloader(url=info_url,
                                                                                                          cookies=cookies)
 
@@ -392,6 +408,9 @@ class Crunchyroll(object):
                 output_directory = supporters.path_works.path_creator(anime_name=anime_name)
                 file_location = str(output_directory) + os.sep + str(file_name).replace(".mp4", ".ass")
 
+                if output is None or not os.path.exists(output):
+                    output = output_directory
+                
                 if os.path.isfile(file_location):
                     print('[anime-dl] File Exists! Skipping {0}\n'.format(file_name))
                     pass
@@ -402,7 +421,7 @@ class Crunchyroll(object):
                     if not subs_downloaded:
                         pass
                     else:
-                        subtitles_moved = self.move_subtitle_file(output_directory)
+                        subtitles_moved = self.move_subtitle_file(output)
                         if subtitles_moved:
                             return True
                         else:
@@ -445,36 +464,8 @@ class Crunchyroll(object):
     def resolution_finder(self, resolution, video_id, url):
         resolution_to_find = None
         info_url = ""
-
-        if str(resolution).lower() in ['1080p', '1080', 'fhd', 'best']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=108&video_quality=80&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "1920x1080"
-
-        elif str(resolution).lower() in ['720p', '720', 'hd']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=106&video_quality=62&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "1280x720"
-        elif str(resolution).lower() in ['640', '640x480']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=103&video_quality=61&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "640x480"
-        elif str(resolution).lower() in ['480p', '480', 'sd']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=106&video_quality=61&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "848x480"
-        elif str(resolution).lower() in ['480x360']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=106&video_quality=61&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "480x360"
-        elif str(resolution).lower() in ['360p', '360', 'cancer']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=106&video_quality=60&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "640x360"
-        elif str(resolution).lower() in ['240p', '240', 'supracancer']:
-            info_url = "http://www.crunchyroll.com/xml/?req=RpcApiVideoPlayer_GetStandardConfig&media_id=%s&video_format=106&video_quality=60&current_page=%s" % (
-                video_id, url)
-            resolution_to_find = "428x240"
+        
+        
 
         logging.debug("info_url : {0}".format(info_url))
 
