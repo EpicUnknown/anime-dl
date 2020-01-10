@@ -69,3 +69,4 @@ anime_dl/sites/funimation - Copy.py
 *.ttf
 *.html
 anime_dl/build/__main__/warn-__main__.txt
+anime_dl/exeMaker.bat
